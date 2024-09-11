@@ -9,9 +9,8 @@ servidor.use(express.json());
 
 servidor.get("/dados", async (_req, res) => {
   try {
-    // Lê o conteúdo do arquivo de forma assíncrona
     let dados = await fsp.readFile(caminhoArquivo, "utf8");
-    // Processa o conteúdo lido
+
     dados = dados
       .split("\r")
       .join("")
@@ -20,36 +19,56 @@ servidor.get("/dados", async (_req, res) => {
 
     res.status(200).json({ conteudo: dados });
   } catch (erro) {
-    console.error("Erro ao ler o arquivo:", erro.message);
-
-    res
-      .status(500)
-      .json({ erro: "Erro ao ler o arquivo", detalhes: erro.message });
+    if (erro.code === "ENOENT") {
+      // Arquivo não encontrado
+      res.status(404).json({ erro: "Arquivo não encontrado" });
+    } else if (erro.code === "EACCES") {
+      // Permissão negada
+      res.status(403).json({ erro: "Permissão negada ao tentar acessar o arquivo" });
+    } else {
+      // Outros erros
+      console.error("Erro ao ler o arquivo:", erro.message);
+      res
+        .status(500)
+        .json({ erro: "Erro ao ler o arquivo", detalhes: erro.message });
+    }
   }
 });
 
 servidor.put("/dados", async (req, res) => {
   try {
-    // Valida o conteúdo de entrada
     let { conteudo } = req.body;
-    if (!conteudo ) {
-      return res.status(400).json({ erro: "Conteúdo inválido" });
+    if (!conteudo || typeof conteudo !== "string" || conteudo.trim() === "") {
+      return res.status(400).json({ erro: "Conteúdo inválido: deve ser uma string não vazia." });
     }
 
-    // Lê o conteúdo existente do arquivo de forma assíncrona
-    let dados = await fsp.readFile(caminhoArquivo, "utf8");
+    let dadosExistentes;
+    try {
+      dadosExistentes = await fsp.readFile(caminhoArquivo, "utf8");
+    } catch (erro) {
+      if (erro.code === "ENOENT") {
+        // Arquivo não existe; cria o arquivo
+        await fsp.writeFile(caminhoArquivo, conteudo);
+        return res.status(201).json({ mensagem: "Arquivo criado com sucesso." });
+      } else {
+        throw erro;
+      }
+    }
 
-    // Escreve o conteúdo atualizado de volta ao arquivo de forma assíncrona
-    await fsp.writeFile(caminhoArquivo, dados);
+    // Adiciona o novo conteúdo ao final do arquivo
+    await fsp.writeFile(caminhoArquivo, `${dadosExistentes}\n${conteudo}`);
 
-    res.json({ messagem: "Conteúdo adicionado com sucesso" });
+    res.json({ mensagem: "Conteúdo adicionado com sucesso." });
   } catch (erro) {
-    // Loga o erro para monitoramento
-    console.error("Erro ao escrever no arquivo:", erro.message);
-    // Retorna uma resposta de erro detalhada
-    res
-      .status(500)
-      .json({ erro: "Erro ao processar o arquivo", detalhes: erro.message });
+    if (erro.code === "EACCES") {
+      // Permissão negada
+      res.status(403).json({ erro: "Permissão negada ao tentar escrever no arquivo" });
+    } else {
+      console.error("Erro ao escrever no arquivo:", erro.message);
+      res
+        .status(500)
+        .json({ erro: "Erro ao processar o arquivo", detalhes: erro.message });
+    }
   }
 });
 
